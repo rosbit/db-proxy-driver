@@ -24,7 +24,7 @@ import (
     which protocol is used.
    - HTTP_DB_PROXY_BASEURL=http://host:http-port will make `db-proxy-driver` to access `db-proxy` with HTTP
    - JSONLRPC_DB_PROXY_HOST=host:rpc-port will make `db-proxy-driver` to access `db-proxy` with net/rpc
-   - JSONLRPC_DB_PROXY_HOST=host:http-port JSONLRPC_USING_WEBSOCKET=1 will make `db-proxy-driver` to access `db-proxy` with net/rpc over Websocket
+   - JSONLRPC_DB_PROXY_WS_HOST=host:http-port will make `db-proxy-driver` to access `db-proxy` with net/rpc over Websocket
 
 4. using ORM package `xorm`
    - `xorm` is supported, just add a `go build` tag like the following.

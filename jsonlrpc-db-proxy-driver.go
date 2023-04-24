@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	jsonlrpc_db_proxy_env = "JSONLRPC_DB_PROXY_HOST"
-	jsonlrpc_using_websocket_env  = "JSONLRPC_USING_WEBSOCKET"
+	jsonlrpc_db_proxy_env  = "JSONLRPC_DB_PROXY_HOST"
+	websocket_db_proxy_env = "JSONLRPC_DB_PROXY_WS_HOST"
 )
 
 var (
@@ -24,14 +24,19 @@ func initJSONLRpcDriver() error {
 	if jsonlDrivedInited {
 		return nil
 	}
+	var usingWebsocket bool
 	jsonlProxyHost = os.Getenv(jsonlrpc_db_proxy_env)
 	if len(jsonlProxyHost) == 0 {
-		return fmt.Errorf("env %s expected", jsonlrpc_db_proxy_env)
+		jsonlProxyHost = os.Getenv(websocket_db_proxy_env)
+		if len(jsonlProxyHost) == 0 {
+			return fmt.Errorf("env %s or %s expected", jsonlrpc_db_proxy_env, websocket_db_proxy_env)
+		}
+		usingWebsocket = true
 	}
 	jsonlDriver = &JSONLDBProxyDriver{}
 	sd.Register(jsonlDriver)
 	jsonlDrivedInited = true
-	if os.Getenv(jsonlrpc_using_websocket_env) == "1" {
+	if usingWebsocket {
 		if err := os.Setenv("WEBSOCKET_ENDPOINT", "/websocket"); err != nil {
 			return err
 		}
