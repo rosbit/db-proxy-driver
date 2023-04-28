@@ -33,7 +33,9 @@ func initJSONLRpcDriver() error {
 		}
 		usingWebsocket = true
 	}
-	jsonlDriver = &JSONLDBProxyDriver{}
+	jsonlDriver = &JSONLDBProxyDriver{
+		dbProxyDriverAdapter: &dbProxyDriverAdapter{},
+	}
 	sd.Register(jsonlDriver)
 	jsonlDrivedInited = true
 	if usingWebsocket {
@@ -62,6 +64,7 @@ type rpcTx struct {
 
 // --------  a driver implementation  -----------
 type JSONLDBProxyDriver struct {
+	*dbProxyDriverAdapter
 }
 
 func (d *JSONLDBProxyDriver) GetDriverName() string {
@@ -82,14 +85,13 @@ func (d *JSONLDBProxyDriver) CreateConnection(dsn string) (dbInst interface{}, e
 		reconnect: reconnect,
 	}
 
-	var res struct {
-		DbId string `json:"db-id"`
-	}
-	if _, _, err = newJSONLDBProxyCaller(c).callDBProxy("open-db", map[string]interface{}{"dsn": dsn}, &res); err != nil {
+	d.dbProxyDriverAdapter.dbProxyCaller = newJSONLDBProxyCaller(c)
+	var dbId string
+	if dbId, err = d.openDB(dsn); err != nil {
 		dbProxyClient.Close()
 		return
 	}
-	c.dbId = res.DbId
+	c.dbId = dbId
 	dbInst = c
 
 	return
@@ -97,18 +99,14 @@ func (d *JSONLDBProxyDriver) CreateConnection(dsn string) (dbInst interface{}, e
 
 func (d *JSONLDBProxyDriver) CloseConnection(dbInst interface{}) (err error) {
 	c := dbInst.(*rpcDB)
-	_, _, err = newJSONLDBProxyCaller(c).callDBProxy("close-db", map[string]interface{}{"did": c.dbId}, nil)
+	err = d.closeDB(c.dbId)
 	(*c.dbProxyClient).Close()
 	return
 }
 
 func (d *JSONLDBProxyDriver) Ping(dbInst interface{}) (err error) {
 	c := dbInst.(*rpcDB)
-	_, _, err = newJSONLDBProxyCaller(c).callDBProxy("ping", map[string]interface{}{
-		"did": c.dbId,
-		"tid": c.txId,
-	}, nil)
-	return
+	return d.ping(c.dbId, c.txId)
 }
 
 func (d *JSONLDBProxyDriver) BeginTx(dbInst interface{}, opts driver.TxOptions) (tx interface{}, err error) {
@@ -118,16 +116,11 @@ func (d *JSONLDBProxyDriver) BeginTx(dbInst interface{}, opts driver.TxOptions) 
 		err = fmt.Errorf("only 1 transaction allowed")
 		return
 	}
-	var res struct {
-		TxId string `json:"tx-id"`
-	}
-	if _, _, err = newJSONLDBProxyCaller(c).callDBProxy("begin-tx", map[string]interface{}{
-		"did": c.dbId,
-		"opts": opts,
-	}, &res); err != nil {
+	var txId string
+	if txId, err = d.beginTx(c.dbId, opts); err != nil {
 		return
 	}
-	c.txId = res.TxId
+	c.txId = txId
 	tx = &rpcTx{
 		rpcDB: c,
 	}
@@ -137,7 +130,7 @@ func (d *JSONLDBProxyDriver) BeginTx(dbInst interface{}, opts driver.TxOptions) 
 func (d *JSONLDBProxyDriver) Commit(tx interface{}) (err error) {
 	// fmt.Fprintf(os.Stderr, "Commit called\n")
 	t := tx.(*rpcTx)
-	_, _, err = newJSONLDBProxyCaller(t.rpcDB).callDBProxy("commit", map[string]interface{}{"tid": t.txId}, nil)
+	err = d.commit(t.txId)
 	t.rpcDB.txId = ""
 	return
 }
@@ -145,7 +138,7 @@ func (d *JSONLDBProxyDriver) Commit(tx interface{}) (err error) {
 func (d *JSONLDBProxyDriver) Rollback(tx interface{}) (err error) {
 	// fmt.Fprintf(os.Stderr, "Rollback called\n")
 	t := tx.(*rpcTx)
-	_, _, err = newJSONLDBProxyCaller(t.rpcDB).callDBProxy("rollback", map[string]interface{}{"tid": t.txId}, nil)
+	err = d.rollback(t.txId)
 	t.rpcDB.txId = ""
 	return
 }
@@ -153,19 +146,13 @@ func (d *JSONLDBProxyDriver) Rollback(tx interface{}) (err error) {
 func (d *JSONLDBProxyDriver) Prepare(dbInst interface{}, query string) (stmt interface{}, err error) {
 	// fmt.Fprintf(os.Stderr, "Prepare %s\n", query)
 	c := dbInst.(*rpcDB)
-	var res struct {
-		StmtId string `json:"stmt-id"`
-	}
-	if _, _, err = newJSONLDBProxyCaller(c).callDBProxy("prepare", map[string]interface{}{
-		"did": c.dbId,
-		"query": query,
-		"tid": c.txId,
-	}, &res); err != nil {
+	var stmtId string
+	if stmtId, err = d.prepare(c.dbId, c.txId, query); err != nil {
 		return
 	}
 	stmt = &rpcStmt {
 		rpcDB: c,
-		stmtId: res.StmtId,
+		stmtId: stmtId,
 	}
 	return
 }
@@ -173,48 +160,18 @@ func (d *JSONLDBProxyDriver) Prepare(dbInst interface{}, query string) (stmt int
 func (d *JSONLDBProxyDriver) CloseStmt(stmt interface{}) (err error) {
 	s := stmt.(*rpcStmt)
 	// fmt.Fprintf(os.Stderr, "close stmt(%v) called\n", s.stmtId)
-	_, _, err = newJSONLDBProxyCaller(s.rpcDB).callDBProxy("close-stmt", map[string]interface{}{"sid": s.stmtId}, nil)
-	return
+	return d.closeStmt(s.stmtId)
 }
 
-func (d *JSONLDBProxyDriver) Exec(stmt interface{}, as ...interface{}) (ec sd.ExecResult, err error) {
+func (d *JSONLDBProxyDriver) Exec(stmt interface{}, args ...interface{}) (ec sd.ExecResult, err error) {
 	s := stmt.(*rpcStmt)
 	// fmt.Fprintf(os.Stderr, "exec stmt(%v) called\n", s.stmtId)
-	var res struct {
-		LastInsertId int64 `json:"lastInsertId"`
-		RowsAffected int64 `json:"rowsAffected"`
-	}
-	if _, _, err = newJSONLDBProxyCaller(s.rpcDB).callDBProxy("exec", map[string]interface{}{
-		"sid": s.stmtId,
-		"args": as,
-	}, &res); err != nil {
-		return
-	}
-	ec = &Result{
-		lastInsertId: res.LastInsertId,
-		rowsAffected: res.RowsAffected,
-	}
-	return
+	return d.exec(s.stmtId, args...)
 }
 
-func (d *JSONLDBProxyDriver) Query(stmt interface{}, as ...interface{}) (r sd.ResultSet, err error) {
+func (d *JSONLDBProxyDriver) Query(stmt interface{}, args ...interface{}) (r sd.ResultSet, err error) {
 	s := stmt.(*rpcStmt)
 	// fmt.Fprintf(os.Stderr, "query stmt(%v) called\n", s.stmtId)
-	var res struct {
-		Columns []string `json:"columns"`
-	}
-	_, rows, e := newJSONLDBProxyCaller(s.rpcDB, true).callDBProxy("query", map[string]interface{}{
-		"sid": s.stmtId,
-		"args": as,
-	}, &res)
-	if e != nil {
-		err = e
-		return
-	}
-	r = &ResultSet{
-		columns: res.Columns,
-		rows: rows,
-	}
-	return
+	return d.query(s.stmtId, args...)
 }
 

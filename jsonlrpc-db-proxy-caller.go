@@ -17,22 +17,19 @@ const doDBProxy = "DBProxy.Do"
 
 type jsonlDBProxyCaller struct {
 	*rpcDB
-	doQuerying bool
 }
-func newJSONLDBProxyCaller(dbInst *rpcDB, doQuerying ...bool) *jsonlDBProxyCaller {
-	if len(doQuerying) > 0 && doQuerying[0] {
-		return &jsonlDBProxyCaller{dbInst, doQuerying[0]}
-	}
+func newJSONLDBProxyCaller(dbInst *rpcDB) *jsonlDBProxyCaller {
 	return &jsonlDBProxyCaller{rpcDB: dbInst}
 }
 
-func (c *jsonlDBProxyCaller) callDBProxy(action string, args map[string]interface{}, res interface{}) (status int, jsonl <-chan []interface{}, err error) {
+func (c *jsonlDBProxyCaller) callDBProxy(action string, args map[string]interface{}, res interface{}, isQuery ...bool) (status int, jsonl <-chan []interface{}, err error) {
 	req := &dbProxyRequest {
 		Action: action,
 		Args: args,
 	}
 
-	if !c.doQuerying {
+	doQuerying := len(isQuery) > 0 && isQuery[0]
+	if !doQuerying {
 		// synchronized
 		status, err = c.callDBProxyWithoutJSONL(req, res)
 		return

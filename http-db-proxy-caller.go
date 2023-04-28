@@ -25,10 +25,10 @@ func (b *BaseResult) GetMsg() string {
 
 type httpDBProxyCaller struct {
 }
-func newHttpDBProxyCaller() *httpDBProxyCaller {
-	return &httpDBProxyCaller{}
-}
-func (c *httpDBProxyCaller) callDBProxy(action string, args map[string]interface{}, res interface{}) (status int, jsonl <-chan []interface{}, err error) {
+var (
+	_httpDBProxyCaller = &httpDBProxyCaller{}
+)
+func (c *httpDBProxyCaller) callDBProxy(action string, args map[string]interface{}, res interface{}, isQuery ...bool) (status int, jsonl <-chan []interface{}, err error) {
 	url := fmt.Sprintf("%s/%s", baseURL, action)
 	var resp *http.Response
 	if status, _, resp, err = gnet.JSON(url, gnet.Params(args), gnet.DontReadRespBody()); err != nil {
@@ -54,6 +54,12 @@ func (c *httpDBProxyCaller) callDBProxy(action string, args map[string]interface
 		return
 	}
 	if err = json.Unmarshal(baseRes.Result, res); err != nil {
+		return
+	}
+
+	doQuerying := len(isQuery) > 0 && isQuery[0]
+	if !doQuerying {
+		resp.Body.Close()
 		return
 	}
 
