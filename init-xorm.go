@@ -3,7 +3,7 @@
 package dbproxy
 
 import (
-    "xorm.io/core"
+	"xorm.io/core"
 	"fmt"
 	"strings"
 )
@@ -35,5 +35,9 @@ func parse(dsn string) (*core.Uri, error) {
 	if pos <= 0 {
 		return nil, fmt.Errorf("unknown dsn")
 	}
-	return &core.Uri{DbType: core.DbType(dsn[:pos])}, nil
+	dbType := dsn[:pos]
+	if dbType == driver_name {
+		dbType = "mysql"
+	}
+	return &core.Uri{DbType: core.DbType(dbType)}, nil
 }
