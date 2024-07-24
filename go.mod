@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/rosbit/gnet v0.0.13
 	github.com/rosbit/go-sql-driver v0.1.2
-	github.com/rosbit/jsonl-rpc v1.1.0
+	github.com/rosbit/jsonl-rpc v1.1.1
 	xorm.io/core v0.7.3
 )
 
